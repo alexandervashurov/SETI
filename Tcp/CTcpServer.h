@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <chrono>
 #include <memory>
 #include <ctime>
 #include <mutex>
@@ -88,9 +89,18 @@ public:
     virtual ~CTcpServer();
     void StartAccept(USHORT Port);
     void StartListenTh(SOCKET Sock);
+    std::vector<ClientID> ListClients();
+    void killClient(ClientID id);
+    void shutdown();
+
+    void HandleDisconnection(ClientID id);
+    void RemoveDisconnected();
+
 private:
     ThreadInfo AcceptThInfo;
     ClientID LastClientID;
     SOCKET AcceptSock;
     std::mutex Mut;
+    std::vector<ClientID> disconnected_clients;
+    std::unordered_map<ClientID, ClientInfo> clients;
 };

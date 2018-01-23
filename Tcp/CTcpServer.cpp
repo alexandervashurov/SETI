@@ -6,13 +6,12 @@ CTcpServer::CTcpServer() {
     LastClientID = 0;
 }
 
-CTcpServer::CTcpServer(const CTcpServer& orig) {
+CTcpServer::CTcpServer(const CTcpServer &orig) {
 }
 
 CTcpServer::~CTcpServer() = default;
 
-void AcceptThread(AcceptThInput pData)
-{
+void AcceptThread(AcceptThInput pData) {
     WSADATA wsaData;
     int iResult;
 
@@ -23,11 +22,11 @@ void AcceptThread(AcceptThInput pData)
 
 
     // Initialize Winsock
-    auto wrd = MAKEWORD(2,2);
+    auto wrd = MAKEWORD(2, 2);
     iResult = WSAStartup(wrd, &wsaData);
     if (iResult != 0) {
         printf("WSAStartup failed with error: %d\n", iResult);
-        return ;
+        return;
     }
 
     ZeroMemory(&hints, sizeof(hints));
@@ -38,10 +37,10 @@ void AcceptThread(AcceptThInput pData)
 
     // Resolve the server address and port
     iResult = getaddrinfo(NULL, "5555", &hints, &result);
-    if ( iResult != 0 ) {
+    if (iResult != 0) {
         printf("getaddrinfo failed with error: %d\n", iResult);
         WSACleanup();
-        return ;
+        return;
     }
 
     ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
@@ -49,16 +48,16 @@ void AcceptThread(AcceptThInput pData)
         printf("socket failed with error: %ld\n", WSAGetLastError());
         freeaddrinfo(result);
         WSACleanup();
-        return ;
+        return;
     }
 
-    iResult = ::bind( ListenSocket, result->ai_addr, (int)result->ai_addrlen);
+    iResult = ::bind(ListenSocket, result->ai_addr, (int) result->ai_addrlen);
     if (iResult == SOCKET_ERROR) {
         printf("bind failed with error: %d\n", WSAGetLastError());
         freeaddrinfo(result);
         closesocket(ListenSocket);
         WSACleanup();
-        return ;
+        return;
     }
 
     freeaddrinfo(result);
@@ -68,7 +67,7 @@ void AcceptThread(AcceptThInput pData)
         printf("listen failed with error: %d\n", WSAGetLastError());
         closesocket(ListenSocket);
         WSACleanup();
-        return ;
+        return;
     }
 
     SOCKET AcceptSocket;
@@ -83,7 +82,6 @@ void AcceptThread(AcceptThInput pData)
             pData.pParent->StartListenTh(AcceptSocket);
         };
     }
-    return;
 };
 
 void ListenThread(ListenThInput pData) {
@@ -98,8 +96,7 @@ void ListenThread(ListenThInput pData) {
 };
 
 
-void CTcpServer::StartAccept(USHORT Port)
-{
+void CTcpServer::StartAccept(USHORT Port) {
     std::unique_lock<std::mutex> lock(Mut);
 
     AcceptThInfo.ThPort = Port;
@@ -110,11 +107,10 @@ void CTcpServer::StartAccept(USHORT Port)
     ThInput.pAcceptSock = &AcceptSock;
     ThInput.pParent = this;
 
-    AcceptThInfo.ThHandle = std::make_shared<std::thread> (AcceptThread, ThInput);
+    AcceptThInfo.ThHandle = std::make_shared<std::thread>(AcceptThread, ThInput);
 }
 
-void CTcpServer::StartListenTh(SOCKET Sock)
-{
+void CTcpServer::StartListenTh(SOCKET Sock) {
     std::unique_lock<std::mutex> lock(Mut);
     ClientInfo CliInfo;
     CliInfo.ID = LastClientID++;
@@ -127,4 +123,27 @@ void CTcpServer::StartListenTh(SOCKET Sock)
 
     CliInfo.ClientThreadInfo.ThHandle = std::make_shared<std::thread>(ListenThread, pThInput);
 
+}
+
+void CTcpServer::shutdown() {
+    closesocket(AcceptSock);
+    AcceptThInfo.ThHandle->join();
+    for (auto &&client: clients) {
+        closesocket(client.second.ClientSocket);
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    RemoveDisconnected();
+    WSACleanup();
+}
+
+std::vector<ClientID> CTcpServer::ListClients() {
+    std::vector<ClientID> result;
+    for(auto&& client: clients){
+        result.emplace_back(client.first);
+    }
+    return result;
+}
+
+void CTcpServer::killClient(ClientID id) {
+    closesocket(clients[id].ClientSocket);
 }
