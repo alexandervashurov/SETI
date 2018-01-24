@@ -1,4 +1,5 @@
-Tcp/.idea
-Tcp/cmake-build-debug
-TcpClient/.idea
-TcpClient/cmake-build-debug
+.vs/
+Tcp/.idea/*
+TcpClient/.idea/*
+Tcp/cmake-build-debug/*
+TcpClient/cmake-build-debug/*

@@ -1,15 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
-
-/* 
- * File:   SeverWorker.h
- * Author: root
- *
- * Created on October 22, 2017, 3:13 AM
- */
 #pragma once
 
 #ifndef SERVERWORKER_H
@@ -17,6 +5,8 @@
 
 #include "stdinc.h"
 #include "API.h"
+#include "Message.h"
+#include "SharedFunctions.h"
 
 #include <unordered_map>
 
@@ -37,7 +27,7 @@ public:
     void Init(SOCKET ClientSocket);
     bool MainLoop();
 private:
-    void SendTo(const char* message);
+    void SendTo(string &message);
     SOCKET socket;
     string GetPasswFilePth(const string& username);
     string GetMessageFilePth(const string& username);
@@ -45,8 +35,8 @@ private:
     string RegisterNewUser(const string &uname, const string &passw,  bool &res);
     string DeleteUser(const string& username);
     unsigned long AddMessage(Message* message, const string& username, const string& from, string& err);
-    string ShowUnreadMes(const string& username, unsigned long &mesCount, string* &buf);
-    string ShowAllMes(const string& username, unsigned long &mesCount, string* &buf);
+    string ShowUnreadMes(const string& username, unsigned long &mesCount,std::vector<std::string> &buf);
+    string ShowAllMes(const string &username, unsigned long &mesCount, vector<string> &buf);
     string ShowExactMes(const string& username, string& buf, const string& mesNumber);
     string DeleteMes(const string& username, const string& mesNumber);
     string ResendMes(const string& from, const string& to, string& buf, const string& mesNumber);
@@ -58,8 +48,8 @@ private:
     bool CheckUser(const string& name);
     unsigned long LastMesID(const string& username);
     STATE ParseOpCode(const string& buf);
-    string Serialize(STATE opcode, unsigned short numarg, const string* ss);
-    STATE Parse(const string& input, unsigned short& numarg, string* &args);
+    string Serialize(STATE opcode, std::vector<std::string> &args);
+    STATE Parse(std::vector<char> &input, std::vector<std::string> &args);
     
     void ReplaceBuf(string& buf, const string& s);
     
@@ -68,7 +58,7 @@ private:
     void OpenSem(const string& name);
     void CloseSem(const string& name);
     
-    bool ListenRecv(char* &MsgStr);
+    bool ListenRecv(vector<char> &MsgStr);
     void CloseSocket();
 
     std::unordered_map<std::string, std::shared_ptr<std::mutex>> locks;

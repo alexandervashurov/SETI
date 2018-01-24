@@ -1,40 +1,6 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
-
 #include <algorithm>
 #include <direct.h>
 #include "ServerWorker.h"
-
-
-//http://www.strudel.org.uk/itoa/
-/**
-	 * C++ version 0.4 std::string style "itoa":
-	 * Contributions from Stuart Lowe, Ray-Yuan Sheu,
-
-	 * Rodrigo de Salvo Braz, Luc Gallant, John Maloney
-	 * and Brian Hunt
-	 */
-string itoa(int value) {
-    int base = 10;
-    std::string buf;
-    enum {
-        kMaxDigits = 35
-    };
-    buf.reserve(kMaxDigits);
-    int quotient = value;
-    // Translating number to string with base:
-    do {
-        buf += (char) (((int) '0') + abs(quotient % base));
-        quotient /= base;
-    } while (quotient);
-    // Append the negative sign
-    if (value < 0) buf += '-';
-    std::reverse(buf.begin(), buf.end());
-    return buf;
-}
 
 ServerWorker::ServerWorker() {
 }
@@ -47,57 +13,6 @@ void ServerWorker::Init(SOCKET s) {
     socket = s;
 }
 
-string Message::Serialize() {
-    stringstream ss;
-    ss << id << DELIM_SERIALIZE;
-    ss << username << DELIM_SERIALIZE;
-    ss << date_time << DELIM_SERIALIZE;
-    ss << len << DELIM_SERIALIZE;
-    ss << state << DELIM_SERIALIZE;
-    std::replace(body.begin(), body.end(), DELIM_SERIALIZE, ' ');
-    ss << body << DELIM_SERIALIZE;
-    return ss.str();
-};
-
-bool Message::Deserialize(const string &input) {
-    bool res = true;
-    int numarg = 0;
-    string *args = NULL;
-    if (input.size() > 0) {
-        stringstream buf;
-        numarg = 0;
-        // find all delimeters
-        for (int i = 0; i < input.size(); i++) {
-            if (input[i] == DELIM_SERIALIZE)
-                numarg++;
-        }
-        // find all parts
-        if (numarg > 0) {
-            args = new string[numarg];
-            unsigned short cc = 0;
-            for (int i = 0; i < input.size(); i++) {
-                if (input[i] == DELIM_SERIALIZE) {
-                    args[cc] = buf.str();
-                    cc++;
-                    buf.str(std::string());
-                } else {
-                    buf << input[i];
-                }
-            }
-        }
-    }
-    if (numarg == MESSAGE_FIELDS_COUNT && args != NULL) {
-        id = strtoul(args[0].c_str(), NULL, 10);
-        username = args[1];
-        date_time = args[2];
-        len = strtoul(args[3].c_str(), NULL, 10);
-        state = atoi(args[4].c_str());
-        body = args[5];
-    } else
-        res = false;
-    return res;
-};
-
 bool ServerWorker::MainLoop() {
     STATE State = NO_OPERATION;
     string MsgStr;
@@ -105,212 +20,179 @@ bool ServerWorker::MainLoop() {
     string errMessage;
     int mesId;
     bool RegisterState = false, LoginState = false;
-    unsigned short numarg;
-    string *args = NULL;
-    string *args2 = new string[STRING_BUFFER_SIZE];
-    char *resBuf;
-    int argsCount = 0;
-    const string servOk = itoa(SERV_OK);
-    const string noOp = itoa(NO_OPERATION);
+    std::vector<std::string> args;
+    std::vector<std::string> args2;
+    std::vector<char> resBuf;
+    const string servOk = std::to_string(SERV_OK);
+    const string noOp = std::to_string(NO_OPERATION);
 
     unsigned long mesCount = 0;
-    unsigned long size;
     Message *m = NULL;
 
     while (true) {
         bool res = ListenRecv(resBuf);
-        MsgStr = string(resBuf);
-        if (res) {
-            argsCount = 1;
-            State = Parse(MsgStr, numarg, args);
-            switch (State) {
-                case START:
-                    args2[0] = servOk;
-                    break;
-                case EXIT:
-                    args2[0] = servOk;
-                    printf("Client with ID: %d is disconnect!\n", socket);
-                    break;
-                case REG:
-                    if (args != NULL && numarg > 1) {
-                        errMessage = RegisterNewUser(args[0], args[1], RegisterState);
-                        if (RegisterState) {
-                            args2[0] = servOk;
-                        } else {
-                            argsCount = 2;
-                            args2[0] = noOp;
-                            args2[1] = errMessage;
-                        }
+        if (!res)
+            return false;
+        args2.clear();
+        State = Parse(resBuf, args);
+        switch (State) {
+            case START:
+                args2.emplace_back(servOk);
+                break;
+            case EXIT:
+                args2.emplace_back(servOk);
+                printf("Client with ID: %d is disconnect!\n", socket);
+                return true;
+            case REG:
+                if (args.size() > 1) {
+                    errMessage = RegisterNewUser(args[0], args[1], RegisterState);
+                    if (RegisterState) {
+                        args2.emplace_back(servOk);
                     } else {
-                        argsCount = 2;
-                        args2[0] = noOp;
-                        args2[1] = "Not valid args.";
+                        args2.emplace_back(noOp);
+                        args2.emplace_back(errMessage);
                     }
-                    break;
-                case LOG:
-                    if (args != NULL && numarg > 1) {
-                        errMessage = LoginNewUser(args[0], args[1], LoginState);
-                        if (LoginState) {
-                            args2[0] = servOk;
-                            currentUserName = args[0];
-                        } else {
-                            argsCount = 2;
-                            args2[0] = noOp;
-                            args2[1] = errMessage;
-                        }
+                } else {
+                    args2.emplace_back(noOp);
+                    args2.emplace_back("Not valid args.");
+                }
+                break;
+            case LOG:
+                if (args.size() > 1) {
+                    errMessage = LoginNewUser(args[0], args[1], LoginState);
+                    if (LoginState) {
+                        args2.emplace_back(servOk);
+                        currentUserName = args[0];
                     } else {
-                        argsCount = 2;
-                        args2[0] = noOp;
-                        args2[1] = "Not valid args.";
+                        args2.emplace_back(noOp);
+                        args2.emplace_back(errMessage);
                     }
-                    break;
-                case LOGOUT:
-                    cout << "Logging out." << endl;
+                } else {
+                    args2.emplace_back(noOp);
+                    args2.emplace_back("Not valid args.");
+                }
+                break;
+            case LOGOUT:
+                cout << "Logging out." << endl;
+                currentUserName = "";
+                args2.emplace_back(servOk);
+                break;
+            case SND:
+                cout << "Sending the message." << endl;
+                if (args.size() > 1) {
+                    m = new Message();
+                    if (m->Deserialize(args[1]) && !args[0].empty()) {
+                        if (!currentUserName.empty())
+                            mesId = AddMessage(m, args[0], currentUserName, errMessage);
+                        else { mesId = 0; }
+                        if (mesId == 0) {
+                            args2.emplace_back(noOp);
+                            args2[1] = "Error while sending the message [" + errMessage + "]";
+                        } else {
+                            m->body = "";
+                            args2.emplace_back(servOk);
+                            args2.emplace_back(m->Serialize());
+                        }
+                    }
+                    delete m;
+                }
+                break;
+            case DEL_US:
+                cout << "Deleting user." << endl;
+                if (!currentUserName.empty()) {
+                    errMessage = DeleteUser(currentUserName);
+                    if (errMessage.empty()) {
+                        args2.emplace_back(servOk);
+                        args2.emplace_back(currentUserName);
+                    } else {
+                        args2.emplace_back(noOp);
+                        args2.emplace_back(errMessage);
+                    }
                     currentUserName = "";
-                    args2[0] = servOk;
-                    break;
-                case SND:
-                    cout << "Sending the message." << endl;
-                    if (args != NULL && numarg > 1) {
-                        m = new Message();
-                        if (m->Deserialize(args[1]) && args[0].size() > 0) {
-                            if (currentUserName.size() > 0)
-                                mesId = AddMessage(m, args[0], currentUserName, errMessage);
-                            else { mesId = 0; }
-                            if (mesId == 0) {
-                                argsCount = 2;
-                                args2[0] = noOp;
-                                args2[1] = "Error while sending the message [" + errMessage + "]";
-                            } else {
-                                m->body = "";
-                                argsCount = 2;
-                                args2[0] = servOk;
-                                args2[1] = m->Serialize();
-                            }
-                        }
-                        delete m;
-                    }
-                    break;
-                case DEL_US:
-                    cout << "Deleting user." << endl;
-                    if (currentUserName.size() > 0) {
-                        errMessage = DeleteUser(currentUserName);
-                        argsCount = 2;
-                        if (errMessage.size() == 0) {
-                            args2[0] = servOk;
-                            args2[1] = currentUserName;
+                }
+                break;
+            case DEL_MSG:
+                cout << "Deleting message." << endl;
+                if (!args.empty()) {
+                    if (!currentUserName.empty()) {
+                        errMessage = DeleteMes(currentUserName, args[0]);
+                        if (errMessage.empty()) {
+                            args2.emplace_back(servOk);
+                            args2.emplace_back("");
                         } else {
-                            args2[0] = noOp;
-                            args2[1] = errMessage;
-                        }
-                        currentUserName = "";
-                    }
-                    break;
-                case DEL_MSG:
-                    cout << "Deleting message." << endl;
-                    if (args != NULL && numarg > 0) {
-                        if (currentUserName.size() > 0) {
-                            errMessage = DeleteMes(currentUserName, args[0]);
-                            argsCount = 2;
-                            if (errMessage.size() == 0) {
-                                args2[0] = servOk;
-                                args2[1] = "";
-                            } else {
-                                args2[0] = noOp;
-                                args2[1] = errMessage;
-                            }
+                            args2.emplace_back(noOp);
+                            args2.emplace_back(errMessage);
                         }
                     }
-                    break;
-                case SH_UNR:
-                    size = 0;
-                    cout << "Showing unread messages." << endl;
-                    if (args != NULL && numarg >= 0) {
-                        if (currentUserName.size() > 0) {
-                            if (args != NULL)
-                                delete[] args;
-                            errMessage = ShowUnreadMes(currentUserName, mesCount, args);
-                            argsCount = 2;
-                            if (errMessage.size() == 0) {
-                                args2[0] = servOk;
-                                if (mesCount > 0) {
-                                    argsCount = mesCount + 1;
-                                    for (int i = 0; i < mesCount; i++)
-                                        args2[i + 1] = args[i];
-                                }
-                            } else {
-                                args2[0] = noOp;
-                                args2[1] = errMessage;
-                            }
+                }
+                break;
+            case SH_UNR:;
+                cout << "Showing unread messages." << endl;
+                if (!currentUserName.empty()) {
+                    errMessage = ShowUnreadMes(currentUserName, mesCount, args);
+                    if (errMessage.empty()) {
+                        args2.emplace_back(servOk);
+                        if (mesCount > 0) {
+                            for (int i = 0; i < mesCount; i++)
+                                args2.emplace_back(args[i]);
+                        }
+                    } else {
+                        args2.emplace_back(noOp);
+                        args2.emplace_back(errMessage);
+                    }
+                }
+                break;
+            case SH_ALL:;
+                cout << "Showing all messages." << endl;
+                if (!currentUserName.empty()) {
+                    errMessage = ShowAllMes(currentUserName, mesCount, args);
+                    if (errMessage.empty()) {
+                        args2.emplace_back(servOk);
+                        if (mesCount > 0) {
+                            for (int i = 0; i < mesCount; i++)
+                                args2.emplace_back(args[i]);
+                        }
+                    } else {
+                        args2.emplace_back(noOp);
+                        args2.emplace_back(errMessage);
+                    }
+                }
+                break;
+            case SH_EX:
+                cout << "Showing the exact message." << endl;
+                if (args.size() > 1) {
+                    if (!currentUserName.empty()) {
+                        errMessage = ShowExactMes(currentUserName, args2[1], args[0]);
+                        if (errMessage.empty()) {
+                            args2.emplace_back(servOk);
+                        } else {
+                            args2.emplace_back(noOp);
+                            args2.emplace_back(errMessage);
                         }
                     }
-                    break;
-                case SH_ALL:
-                    size = 0;
-                    cout << "Showing all messages." << endl;
-                    if (args != NULL && numarg >= 0) {
-                        if (currentUserName.size() > 0) {
-                            if (args != NULL)
-                                delete[] args;
-                            errMessage = ShowAllMes(currentUserName, mesCount, args);
-                            argsCount = 2;
-                            if (errMessage.size() == 0) {
-                                args2[0] = servOk;
-                                if (mesCount > 0) {
-                                    argsCount = mesCount + 1;
-                                    for (int i = 0; i < mesCount; i++)
-                                        args2[i + 1] = args[i];
-                                }
-                            } else {
-                                args2[0] = noOp;
-                                args2[1] = errMessage;
-                            }
+                }
+                break;
+            case RSND:
+                cout << "Resending the exact message." << endl;
+                if (args.size() > 1) {
+                    if (!currentUserName.empty()) {
+                        errMessage = ResendMes(currentUserName, args[1], args2[1], args[0]);
+                        if (errMessage.empty()) {
+                            args2.emplace_back(servOk);
+                        } else {
+                            args2.emplace_back(noOp);
+                            args2.emplace_back(errMessage);
                         }
                     }
-                    break;
-                case SH_EX:
-                    cout << "Showing the exact message." << endl;
-                    size = 0;
-                    if (args != NULL && numarg >= 1) {
-                        if (currentUserName.size() > 0) {
-                            errMessage = ShowExactMes(currentUserName, args2[1], args[0]);
-                            argsCount = 2;
-                            if (errMessage.size() == 0) {
-                                args2[0] = servOk;
-                            } else {
-                                args2[0] = noOp;
-                                args2[1] = errMessage;
-                            }
-                        }
-                    }
-                    break;
-                case RSND:
-                    cout << "Resending the exact message." << endl;
-                    size = 0;
-                    if (args != NULL && numarg >= 2) {
-                        if (currentUserName.size() > 0) {
-                            errMessage = ResendMes(currentUserName, args[1], args2[1], args[0]);
-                            argsCount = 2;
-                            if (errMessage.size() == 0) {
-                                args2[0] = servOk;
-                            } else {
-                                args2[0] = noOp;
-                                args2[1] = errMessage;
-                            }
-                        }
-                    }
-                    break;
-                default:
-                    cout << "Unknown state: " << State << endl;
-                    break;
-            }
-            SendTo(Serialize(ANSWER, argsCount, args2).c_str());
+                }
+                break;
+            default:
+                cout << "Unknown state: " << State << endl;
+                break;
         }
+        auto &&serialized = Serialize(ANSWER, args2);
+        SendTo(serialized);
     }
-    if (args != NULL)
-        delete[] args;
-    if (args2 != NULL)
-        delete[] args2;
     return true;
 }
 
@@ -417,9 +299,10 @@ string ServerWorker::LoginNewUser(const string &uname, const string &passw, bool
 string ServerWorker::DeleteUser(const string &username) {
     string buf;
     time_t seconds = time(NULL);
-    tm *timeinfo = localtime(&seconds);
+    tm timeinfo;
+    localtime_s(&timeinfo, &seconds);
 
-    buf.append(asctime(timeinfo));
+    buf.append(asctime(&timeinfo));
     int position = buf.find('\n');
     buf.replace(position, 1, "");
     position = buf.find(" ");
@@ -446,8 +329,9 @@ unsigned long ServerWorker::AddMessage(Message *message, const string &username,
     if (isNameValid) {
         if (lastId > 0 && message != NULL) {
             time_t seconds = time(NULL);
-            tm *timeinfo = localtime(&seconds);
-            message->date_time = asctime(timeinfo);
+            tm timeinfo;
+            localtime_s(&timeinfo, &seconds);
+            message->date_time = asctime(&timeinfo);
             message->id = lastId;
             message->state = MSTATE_UNREAD;
             message->username = from;
@@ -501,24 +385,24 @@ bool ServerWorker::WriteMessages(const string &username, Message **m, const unsi
     return false;
 }
 
-string ServerWorker::ShowUnreadMes(const string &username, unsigned long &cc, string *&buf) {
+string ServerWorker::ShowUnreadMes(const string &username, unsigned long &cc, std::vector<std::string> &buf) {
     int unread = 0;
     unsigned long size = 0;
     Message **mm = ReadAllMes(username, size);
     bool changes = false;
+    buf.clear();
     if (size > 0) {
         for (unsigned long i = 0; i < size; i++) {
-            if (mm[i] != NULL) {
+            if (mm[i] != nullptr) {
                 if (mm[i][0].state == MSTATE_UNREAD) {
                     unread++;
                 }
             }
         }
-        buf = new string[unread];
         cc = 0;
         for (unsigned int i = 0; i < size; i++) {
             if (mm[i][0].state == MSTATE_UNREAD) {
-                buf[cc] = mm[i][0].Serialize();
+                buf.emplace_back(mm[i][0].Serialize());
                 changes = true;
                 mm[i][0].state = MSTATE_NORMAL;
                 cc++;
@@ -527,7 +411,7 @@ string ServerWorker::ShowUnreadMes(const string &username, unsigned long &cc, st
         if (changes)
             WriteMessages(username, mm, size, true);
         for (unsigned long i = 0; i < size; i++) {
-            if (mm[i] != NULL)
+            if (mm[i] != nullptr)
                 delete mm[i];
         }
     }
@@ -537,13 +421,13 @@ string ServerWorker::ShowUnreadMes(const string &username, unsigned long &cc, st
     return "";
 }
 
-string ServerWorker::ShowAllMes(const string &username, unsigned long &size, string *&buf) {
+string ServerWorker::ShowAllMes(const string &username, unsigned long &size, vector<string> &buf) {
     Message **mm = ReadAllMes(username, size);
     bool changes = false;
+    buf.clear();
     if (size > 0) {
-        buf = new string[size];
         for (unsigned int i = 0; i < size; i++) {
-            buf[i] = mm[i][0].Serialize();
+            buf.emplace_back(mm[i][0].Serialize());
             if (mm[i][0].state == MSTATE_UNREAD) {
                 changes = true;
                 mm[i][0].state = MSTATE_NORMAL;
@@ -815,7 +699,7 @@ bool ServerWorker::DeleteOneMes(const string &username, const unsigned long &id)
                     res = true;
                     break;
                 }
-        if (res == true) {
+        if (res) {
             size--;
             if (size > 0) {
                 buf = (Message **) realloc(buf, (size) * sizeof(Message *));
@@ -834,121 +718,30 @@ bool ServerWorker::DeleteOneMes(const string &username, const unsigned long &id)
     return res;
 }
 
-bool ServerWorker::ListenRecv(char *&MsgStr) {
-    char c[BUFSIZE];
-    unsigned int size = 0;
-    int res = recv(socket, c, BUFSIZE, 0);
-    if (res == BUFSIZE) {
-        size = atoi(c);
-
-        char* recvbuf = new char[size];
-        int res = recv(socket, recvbuf, size, 0);
-        printf("String received: %s\n", recvbuf);
-        if (res > 0) {
-            int count = 0;
-            for (int i = 0; i < res; i++)
-                if (recvbuf[i] != '\r' && recvbuf[i] != '\0')
-                    count++;
-            MsgStr = new char[count];
-            count = 0;
-            for (int i = 0; i < res; i++)
-                if (recvbuf[i] != '\r' && recvbuf[i] != '\0')
-                    MsgStr[count++] = recvbuf[i];
-
-        }
-        delete recvbuf;
-    } else return false;
-    return true;
+bool ServerWorker::ListenRecv(vector<char> &MsgStr) {
+    return __ListenRecv(socket, MsgStr);
 }
 
-void ServerWorker::SendTo(const char *message) {
-    if (message != NULL) {
-        int res = 0;
-        int size = strlen(message);
-        char *ss = new char[size + BUFSIZE];
-        char *sizeBuf = new char[BUFSIZE];
-        snprintf(sizeBuf, BUFSIZE, "%d", size);
-        printf("SB = %s\n", sizeBuf);
-        int shift = BUFSIZE - strlen(sizeBuf);
-        for (int i = BUFSIZE - 1; i >= 0; i--) {
-            if (i >= shift)
-                ss[i] = sizeBuf[i - shift];
-            else
-                ss[i] = '0';
-        }
-        for (int i = BUFSIZE; i < size + BUFSIZE; i++) {
-            ss[i] = message[i - BUFSIZE];
-        }
-        printf("String to send: %s\n", ss);
-        res = send(socket, ss, size + BUFSIZE, 0);
-        if (res != size + BUFSIZE)
-            printf("Send failed: %s != %zd!\n", ss, size);
-        delete[] ss;
-    } else
-        printf("Failed to send. Received NULL message.");
+void ServerWorker::SendTo(string &message) {
+    sendToSocket(socket, message);
 }
 
 
-string ServerWorker::Serialize(STATE opcode, unsigned short numarg, const string *ss) {
-    stringstream sstr;
-    sstr << (int) opcode << DELIM_PARSE << (int) numarg << DELIM_PARSE;
-    if (numarg > 0 && ss != NULL)
-        for (int i = 0; i <= numarg - 1; i++) {
-            string temp = ss[i];
-            std::replace(temp.begin(), temp.end(), DELIM_PARSE, ' ');
-            sstr << temp << DELIM_PARSE;
-        }
-    return sstr.str();
+string ServerWorker::Serialize(STATE opcode, std::vector<std::string> &args) {
+    return __Serialize(opcode, args);
 }
 
-STATE ServerWorker::Parse(const string &input, unsigned short &numarg, string *&args) {
-    STATE res = NO_OPERATION;
-    if (input.size() > 0) {
-        stringstream buf;
-        numarg = 0;
-        // find all delimeters
-        for (int i = 0; i < input.size(); i++) {
-            if (input[i] == DELIM_PARSE)
-                numarg++;
-        }
-        // find all parts
-        if (numarg > 0) {
-            args = new string[numarg - 1];
-            string opcodeBuf;
-            unsigned short cc = 0;
-            for (int i = 0; i < input.size(); i++) {
-                if (input[i] == DELIM_PARSE) {
-                    if (cc == 0) {
-                        opcodeBuf = buf.str();
-                    } else if (cc > 1) {
-                        args[cc - 2] = buf.str();
-                    }
-                    cc++;
-                    buf.str(std::string());
-                } else {
-                    buf << input[i];
-                }
-            }
-            // args[0] is operation code
-            res = ParseOpCode(opcodeBuf);
-            numarg -= 2;
-        }
-    }
-    return res;
+STATE ServerWorker::Parse(std::vector<char> &input, std::vector<std::string> &args) {
+    return __Parse(input, args);
 }
 
-STATE ServerWorker::ParseOpCode(const string &buf) {
-    int res = atoi(buf.c_str());
-    STATE st = NO_OPERATION;
-    for (int i = 0; i < API_SIZE; i++)
-        if (res == i)
-            return static_cast<STATE>(i);
-
-    return st;
+STATE ServerWorker::ParseOpCode(const std::string &buf) {
+    return __ParseOpCode(buf);
 }
 
 void ServerWorker::CloseSocket() {
-    SendTo("Closing connection.");
+    auto &&message = std::string("Closing connection.");
+    SendTo(message);
     if (closesocket(socket) == -1)
         printf("Socket #%d close failed\n", socket);
 }
