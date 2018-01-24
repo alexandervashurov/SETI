@@ -3,3 +3,7 @@ Tcp/.idea/*
 TcpClient/.idea/*
 Tcp/cmake-build-debug/*
 TcpClient/cmake-build-debug/*
+UdpServer/.idea/*
+UdpClient/.idea/*
+UdpServer/cmake-build-debug/*
+UdpClient/cmake-build-debug/*
