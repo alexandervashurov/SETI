@@ -100,11 +100,15 @@ public:
     void HandleDisconnection(ClientID id);
     void RemoveDisconnected();
 
+	void LockClient(const std::string& name);
+	void UnlockClient(const std::string& name);
+
 private:
     ThreadInfo AcceptThInfo;
     ClientID LastClientID;
     SOCKET AcceptSock;
     std::mutex Mut;
     std::unordered_map<ClientID, ClientInfo> clients;
-    std::vector<ClientID> disconnected_clients;
+    std::vector<ClientInfo> disconnected_clients;
+	std::unordered_map<std::string, std::mutex> locks;
 };

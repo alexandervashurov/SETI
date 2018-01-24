@@ -7,6 +7,7 @@
 #include "API.h"
 #include "Message.h"
 #include "SharedFunctions.h"
+#include "CTcpServer.h"
 
 #include <unordered_map>
 
@@ -18,22 +19,38 @@ typedef unsigned short  USHORT;
 
 using namespace std;
 
+class CTcpServer;
+
 class ServerWorker
 {
 public:
-    ServerWorker();
+    explicit ServerWorker(CTcpServer* parent);
     ~ServerWorker();
     
     void Init(SOCKET ClientSocket);
     bool MainLoop();
-private:
-    void SendTo(string &message);
-    SOCKET socket;
+
+	void SendTo(string &message);
     string GetPasswFilePth(const string& username);
     string GetMessageFilePth(const string& username);
     string LoginNewUser(const string &uname, const string &passw,  bool &res);
-    string RegisterNewUser(const string &uname, const string &passw,  bool &res);
+	string RegisterNewUser(const string &uname, const string &passw,  bool &res);
     string DeleteUser(const string& username);
+	/*template<typename R,
+		typename F,
+		class... _Types> inline
+		R WithLock(const std::string& key, F fun, _Types&&... _Args) {
+		OpenSem(key);
+		R result;
+		try {
+			result = fun(_Args...);
+		}
+		catch (std::exception &ex) {
+			std::cerr << ex.what() << std::endl;
+		}
+		CloseSem(key);
+		return result;
+	}*/
     unsigned long AddMessage(Message* message, const string& username, const string& from, string& err);
     string ShowUnreadMes(const string& username, unsigned long &mesCount,std::vector<std::string> &buf);
     string ShowAllMes(const string &username, unsigned long &mesCount, vector<string> &buf);
@@ -54,15 +71,16 @@ private:
     void ReplaceBuf(string& buf, const string& s);
     
     void WriteToFile(const string& username, Message* message);    
-    
+    /*
     void OpenSem(const string& name);
-    void CloseSem(const string& name);
+    void CloseSem(const string& name);*/
     
     bool ListenRecv(vector<char> &MsgStr);
     void CloseSocket();
+	
+	SOCKET socket;
+	CTcpServer *pParent;
 
-    std::unordered_map<std::string, std::shared_ptr<std::mutex>> locks;
-    
 };
 
 

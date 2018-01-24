@@ -2,12 +2,10 @@
 #include <direct.h>
 #include "ServerWorker.h"
 
-ServerWorker::ServerWorker() {
+ServerWorker::ServerWorker(CTcpServer * parent): pParent(parent){
 }
 
-ServerWorker::~ServerWorker() {
-    CloseSocket();
-}
+ServerWorker::~ServerWorker() = default;
 
 void ServerWorker::Init(SOCKET s) {
     socket = s;
@@ -195,19 +193,14 @@ bool ServerWorker::MainLoop() {
     }
     return true;
 }
-
-void ServerWorker::OpenSem(const string &name) {
-    auto &&lock = locks.find(name);
-    if (lock == std::end(locks)) {
-        locks[name] = std::make_shared<std::mutex>();
-    }
-    locks[name]->lock();
-}
-
-void ServerWorker::CloseSem(const string &name) {
-    auto &&lock = locks.find(name);
-    if (lock != std::end(locks)) locks[name]->unlock();
-}
+//
+//void ServerWorker::OpenSem(const string &name) {
+//	pParent->LockClient(name);
+//}
+//
+//void ServerWorker::CloseSem(const string &name) {
+//	pParent->UnlockClient(name);
+//}
 
 string ServerWorker::GetPasswFilePth(const string &username) {
     string pth = USERS_FOLDER;
@@ -222,18 +215,52 @@ string ServerWorker::GetMessageFilePth(const string &username) {
     pth += MESSAGE_FILE;
     return pth;
 }
+//
+//void check_user(std::string& pth, std::string& pass2) {
+//	ifstream fin(pth.c_str());
+//	if (fin.good())
+//		fin >> pass2;
+//	fin.close();
+//}
 
 bool ServerWorker::CheckUser(const string &name) {
     string pth = GetPasswFilePth(name);
     string pass2;
-    OpenSem(name);
-    ifstream fin(pth.c_str());
-    if (fin.good())
-        fin >> pass2;
-    fin.close();
-    CloseSem(name);
+	//WithLock<bool>(name, [&]() {check_user(pth, pass2); return true; });
+	ifstream fin(pth.c_str());
+	if (fin.good())
+		fin >> pass2;
+	fin.close();
     return pass2.size() > 0;
 }
+
+//
+//std::string register_new_user(const string &uname,std::ifstream& fin, const string &passw) {
+//	int stat;
+//	if (fin.good()) {
+//		printf("ERROR: User already exists.\n");
+//		return "Username is already used by another user. Please, choose other option for username.\n";
+//	}
+//	string pth = "./users/";
+//	_mkdir(pth.c_str());
+//	pth += uname;
+//
+//	stat = _mkdir(pth.c_str());
+//	if (stat != 0) {
+//		printf("ERROR: Failed to create dir. ErrCode = %d\n", stat);
+//		return "Internal server issue. Please, try again.\n";
+//	}
+//	printf("Dir %s created successfully.\n", uname.c_str());
+//	pth += PASSW_FILE;
+//	ofstream out(pth.c_str());
+//	if (!out.good()) {
+//		printf("ERROR: Password is not saved.\n");
+//		return "ERROR: Password is not saved.\n";
+//	}
+//	out << passw;
+//	out.close();
+//	return "";
+//}
 
 string ServerWorker::RegisterNewUser(const string &uname, const string &passw, bool &res) {
     int stat;
@@ -241,28 +268,31 @@ string ServerWorker::RegisterNewUser(const string &uname, const string &passw, b
     if (uname.length() > 0 && passw.length() > 0) {
 
         ifstream fin(GetPasswFilePth(uname).c_str());
-        if (fin.good()) {
-            printf("ERROR: User already exists.\n");
-            return "Username is already used by another user. Please, choose other option for username.\n";
-        }
-        string pth = "./users/";
-        _mkdir(pth.c_str());
-        pth += uname;
+		//auto&& result = WithLock<std::string>(uname, [&]() {return register_new_user(uname, fin, passw); });
+		int stat;
+		if (fin.good()) {
+			printf("ERROR: User already exists.\n");
+			return "Username is already used by another user. Please, choose other option for username.\n";
+		}
+		string pth = "./users/";
+		_mkdir(pth.c_str());
+		pth += uname;
 
-        stat = _mkdir(pth.c_str());
-        if (stat != 0) {
-            printf("ERROR: Failed to create dir. ErrCode = %d\n", stat);
-            return "Internal server issue. Please, try again.\n";
-        }
-        printf("Dir %s created successfully.\n", uname.c_str());
-        pth += PASSW_FILE;
-        ofstream out(pth.c_str());
-        if (!out.good()) {
-            printf("ERROR: Password is not saved.\n");
-            return "ERROR: Password is not saved.\n";
-        }
-        out << passw;
-        out.close();
+		stat = _mkdir(pth.c_str());
+		if (stat != 0) {
+			printf("ERROR: Failed to create dir. ErrCode = %d\n", stat);
+			return "Internal server issue. Please, try again.\n";
+		}
+		printf("Dir %s created successfully.\n", uname.c_str());
+		pth += PASSW_FILE;
+		ofstream out(pth.c_str());
+		if (!out.good()) {
+			printf("ERROR: Password is not saved.\n");
+			return "ERROR: Password is not saved.\n";
+		}
+		out << passw;
+		out.close();
+		//if (!result.empty()) return result;
         res = true;
         ofstream mFile(GetMessageFilePth(uname).c_str());
         mFile.close();
@@ -270,29 +300,47 @@ string ServerWorker::RegisterNewUser(const string &uname, const string &passw, b
     return "";
 }
 
+
+//
+//std::string login_user(const string &uname, const string &passw, std::string& pth, bool &res) {
+//	ifstream fin(pth.c_str());
+//	string pass2;
+//
+//	if (!fin.good()) {
+//		printf("ERROR: Could not load file %s.\n", pth.c_str());
+//		return "Internal server issue. Please, try again.\n";
+//	}
+//	fin >> pass2;
+//	if (pass2.compare(passw) != 0) {
+//		printf("ERROR: Password is not correct or there is no access to the pass. path = \"%s\"", pth.c_str());
+//		return "Internal server issue. Please, try again.\n";
+//	}
+//	res = true;
+//	printf("Successfully logged in! User: %s\n", uname.c_str());
+//	fin.close();
+//}
+
 string ServerWorker::LoginNewUser(const string &uname, const string &passw, bool &res) {
     res = false;
     if (uname.length() > 0 && passw.length() > 0) {
-        string pass2;
         string pth = GetPasswFilePth(uname);
-        OpenSem(uname);
-        ifstream fin(pth.c_str());
-        if (!fin.good()) {
-            printf("ERROR: Could not load file %s.\n", pth.c_str());
-            return "Internal server issue. Please, try again.\n";
+		//return WithLock<std::string>(uname, [&]() {return login_user(uname, passw, pth, res); });
+		ifstream fin(pth.c_str());
+		string pass2;
 
-
-        }
-        fin >> pass2;
-        if (pass2.compare(passw) != 0) {
-            printf("ERROR: Password is not correct or there is no access to the pass. path = \"%s\"", pth.c_str());
-            return "Internal server issue. Please, try again.\n";
-        }
-        res = true;
-        printf("Successfully logged in! User: %s\n", uname.c_str());
-        fin.close();
-        CloseSem(uname);
-    }
+		if (!fin.good()) {
+			printf("ERROR: Could not load file %s.\n", pth.c_str());
+			return "Internal server issue. Please, try again.\n";
+		}
+		fin >> pass2;
+		if (pass2.compare(passw) != 0) {
+			printf("ERROR: Password is not correct or there is no access to the pass. path = \"%s\"", pth.c_str());
+			return "Internal server issue. Please, try again.\n";
+		}
+		res = true;
+		printf("Successfully logged in! User: %s\n", uname.c_str());
+		fin.close();
+	}
     return "";
 }
 
@@ -343,19 +391,31 @@ unsigned long ServerWorker::AddMessage(Message *message, const string &username,
 }
 
 void ServerWorker::WriteToFile(const string &username, Message *message) {
-    OpenSem(username);
-    ofstream out(GetMessageFilePth(username).c_str(), ios_base::app);
-    if (out.good() && message != NULL) {
-        out << MES_ID << message->id << endl;
-        out << MES_ADDR << message->username << endl;
-        out << MES_DATE_TIME << message->date_time; // << endl;
-        out << MES_LEN << message->len << endl;
-        out << MES_STATE << MESSAGE_STATES[message->state] << endl;
-        out << message->body << endl;
+	//WithLock<bool>(username, [&]() {
+	//	ofstream out(GetMessageFilePth(username).c_str(), ios_base::app);
+	//if (out.good() && message != NULL) {
+	//	out << MES_ID << message->id << endl;
+	//	out << MES_ADDR << message->username << endl;
+	//	out << MES_DATE_TIME << message->date_time; // << endl;
+	//	out << MES_LEN << message->len << endl;
+	//	out << MES_STATE << MESSAGE_STATES[message->state] << endl;
+	//	out << message->body << endl;
+	//
+	//}
+	//out.close();
+	//return true;
+	//});
+	ofstream out(GetMessageFilePth(username).c_str(), ios_base::app);
+	if (out.good() && message != NULL) {
+		out << MES_ID << message->id << endl;
+		out << MES_ADDR << message->username << endl;
+		out << MES_DATE_TIME << message->date_time; // << endl;
+		out << MES_LEN << message->len << endl;
+		out << MES_STATE << MESSAGE_STATES[message->state] << endl;
+		out << message->body << endl;
 
-    }
-    out.close();
-    CloseSem(username);
+	}
+	out.close();
 }
 
 bool ServerWorker::WriteMessages(const string &username, Message **m, const unsigned long &size, bool ioMode) {

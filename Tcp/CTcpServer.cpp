@@ -22,7 +22,7 @@ void AcceptThread(AcceptThInput pData) {
     iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (iResult != 0) {
         printf("WSAStartup failed with error: %d\n", iResult);
-        return ;
+        return;
 
     }
 
@@ -37,7 +37,8 @@ void AcceptThread(AcceptThInput pData) {
     target.sin_family = AF_INET;
     target.sin_port = htons(pData.ThPort);
     target.sin_addr.s_addr = INADDR_ANY;
-    auto _target = reinterpret_cast<sockaddr *>(&target);iResult = ::bind( ListenSocket, _target, sizeof(sockaddr));
+    auto _target = reinterpret_cast<sockaddr *>(&target);
+    iResult = ::bind(ListenSocket, _target, sizeof(sockaddr));
     if (iResult == SOCKET_ERROR) {
         printf("bind failed with error: %d\n", WSAGetLastError());
         closesocket(ListenSocket);
@@ -72,7 +73,7 @@ void AcceptThread(AcceptThInput pData) {
 
 void ListenThread(ListenThInput pData) {
     printf("Listen thread is run\r\n");
-    ServerWorker w;
+    ServerWorker w(pData.pParent);
     w.Init(pData.ClientSocket);
     bool res = w.MainLoop();
     if (res)
@@ -99,18 +100,31 @@ void CTcpServer::StartAccept(USHORT Port) {
 
 void CTcpServer::HandleDisconnection(ClientID id) {
     std::unique_lock<std::mutex> lock(Mut);
-    disconnected_clients.emplace_back(id);
+    auto &&client = clients[id];
+    disconnected_clients.emplace_back(client);
+    clients.erase(id);
 }
 
 void CTcpServer::RemoveDisconnected() {
     if (disconnected_clients.empty()) return;
     std::unique_lock<std::mutex> lock(Mut);
-    for (auto &&id: disconnected_clients) {
-        auto &&client = clients[id];
+    for (auto &&client: disconnected_clients) {
         client.ClientThreadInfo.ThHandle->join();
-        clients.erase(id);
     }
     disconnected_clients.clear();
+}
+
+void CTcpServer::LockClient(const std::string & name){
+	std::lock_guard<std::mutex> g_lock(Mut);
+	locks[name].lock();
+}
+
+void CTcpServer::UnlockClient(const std::string & name){
+	std::lock_guard<std::mutex> g_lock(Mut);
+	auto &&lock = locks.find(name);
+	if (lock != locks.end()) {
+		lock->second.unlock();
+	}
 }
 
 void CTcpServer::StartListenTh(SOCKET Sock) {
@@ -140,7 +154,7 @@ void CTcpServer::shutdown() {
 
 std::vector<ClientID> CTcpServer::ListClients() {
     std::vector<ClientID> result;
-    for(auto&& client: clients){
+    for (auto &&client: clients) {
         result.emplace_back(client.first);
     }
     return result;
