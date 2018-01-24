@@ -572,9 +572,9 @@ void ClientWorker::Run(string host, unsigned short port) {
 }
 
 int ClientWorker::SendTo(SOCKET socket, std::string &message) {
-    return send_message_udp(server_addr, socket, message);
+    return send_message_udp(server_addr, socket, socket, message);
 }
 
 int ClientWorker::ListenRecv(SOCKET socket, std::vector<char> &message) {
-    return receive_message_udp(server_addr, socket, message);
+    return receive_message_udp(server_addr, socket, socket, message);
 }

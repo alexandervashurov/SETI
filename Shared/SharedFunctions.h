@@ -6,6 +6,7 @@
 #include <iostream>
 #include <tuple>
 #include "Message.h"
+
 #ifndef WIN32
 
 #include <sys/socket.h>
@@ -153,14 +154,22 @@ static int send_udp(SOCKET socket, std::string &packet, sockaddr *addr) {
     return sendto(socket, packet.data(), packet.size(), 0, addr, sizeof(sockaddr));
 }
 
-static int receive_udp(SOCKET socket, char *buffer, sockaddr *addr) {
+static int receive_udp(SOCKET socket, char *buffer, sockaddr *addr, bool receive_from_pipe = false) {
     auto client_info_size = sizeof(sockaddr);
 #ifndef WIN32
     auto client_info_size_ptr = reinterpret_cast<socklen_t *>(&client_info_size);
 #else
     auto client_info_size_ptr = reinterpret_cast<int *>(&client_info_size);
 #endif
-    return recvfrom(socket, buffer, MESSAGE_SIZE, 0, addr, client_info_size_ptr);
+    int bytes;
+    if (!receive_from_pipe) {
+        bytes = recvfrom(socket, buffer, MESSAGE_SIZE, 0, addr, client_info_size_ptr);
+    } else {
+#ifndef WIN32
+        bytes = read(socket, buffer, MESSAGE_SIZE);
+#endif
+    }
+    return bytes;
 }
 
 static int select_udp(SOCKET socket, int timeout_ms) {
@@ -173,8 +182,10 @@ static int select_udp(SOCKET socket, int timeout_ms) {
     return select(socket + 1, &rfds, NULL, NULL, &tv);
 }
 
-static int send_message_udp(sockaddr_in &server_addr, SOCKET socket, std::string &message) {
+static int send_message_udp(sockaddr_in &send_addr, SOCKET send_socket, SOCKET recv_socket, std::string &in_message,
+                            bool receive_from_pipe = false) {
     std::vector<std::string> send_buffer;
+    std::string message = in_message + std::string(MESSAGE_END);
     auto mess_size = message.size();
     int size = mess_size / UDP_PACKET_SIZE;
     int reminder = mess_size % UDP_PACKET_SIZE;
@@ -184,15 +195,15 @@ static int send_message_udp(sockaddr_in &server_addr, SOCKET socket, std::string
         auto packet = make_content_message(i, size, chunk);
         send_buffer.emplace_back(packet);
     }
-    auto _server_addr = reinterpret_cast<sockaddr *>(&server_addr);
-//    for (auto &&packet: send_buffer) {
+    auto _send_addr = reinterpret_cast<sockaddr *>(&send_addr);
+    for (auto &&packet: send_buffer) {
+        auto &&send_stat = send_udp(send_socket, packet, _send_addr);
+    }
+//    for (int l = 0; l < send_buffer.size(); ++l) {
+//        if (l == 0) continue;
+//        auto &&packet = send_buffer[l];
 //        auto &&send_stat = send_udp(socket, packet, _server_addr);
 //    }
-    for (int l = 0; l < send_buffer.size(); ++l) {
-        if (l == 0) continue;
-        auto &&packet = send_buffer[l];
-        auto &&send_stat = send_udp(socket, packet, _server_addr);
-    }
 //    for (int l = 0; l < send_buffer.size(); ++l) {
 //        auto&& packet = send_buffer[l];
 //        auto &&send_stat = send_udp(socket, packet, _server_addr);
@@ -207,14 +218,14 @@ static int send_message_udp(sockaddr_in &server_addr, SOCKET socket, std::string
     int k;
     for (k = 0; k < 100; ++k) {
         memset(receive_buffer, 0, MESSAGE_SIZE + 1);
-        auto select_status = select_udp(socket, 300);
+        auto select_status = select_udp(recv_socket, 300);
         if (select_status < 0) {
             std::cerr << "Error in select" << std::endl;
             break;
         } else if (select_status) {
-            auto bytes = receive_udp(socket, receive_buffer, &client_info);
+            auto bytes = receive_udp(recv_socket, receive_buffer, &client_info, receive_from_pipe);
             auto address = reinterpret_cast<sockaddr_in *>(&client_info);
-            if (address->sin_addr.s_addr != server_addr.sin_addr.s_addr) continue;
+//            if (address->sin_addr.s_addr != server_addr.sin_addr.s_addr) continue;
             if (bytes < 0) {
                 std::cerr << "Receive error" << std::endl;
                 continue;
@@ -234,7 +245,7 @@ static int send_message_udp(sockaddr_in &server_addr, SOCKET socket, std::string
         }
         for (int i = send_index; i < send_buffer.size(); ++i) {
             auto &&packet = send_buffer[i];
-            send_udp(socket, packet, _server_addr);
+            send_udp(send_socket, packet, _send_addr);
         }
     }
     if (k == 100) {
@@ -244,29 +255,22 @@ static int send_message_udp(sockaddr_in &server_addr, SOCKET socket, std::string
     return 0;
 }
 
-static int receive_message_udp(sockaddr_in &server_addr, SOCKET socket, std::vector<char> &received_mes,
-                               bool udp_client_specific = false) {
+static int receive_message_udp(sockaddr_in &send_addr, SOCKET send_socket, SOCKET recv_socket,
+                               std::vector<char> &received_mes, bool receive_from_pipe = false) {
     received_mes.clear();
     char buffer[MESSAGE_SIZE + 1];
     std::vector<std::string> receive_buffer;
     sockaddr client_info{};
-    auto _server_addr = reinterpret_cast<sockaddr *>(&server_addr);
+    auto _send_addr = reinterpret_cast<sockaddr *>(&send_addr);
     bool first_packet = true;
     while (true) {
         memset(buffer, 0, MESSAGE_SIZE + 1);
         if (!first_packet) {
-            auto select_status = select_udp(socket, 30000);
+            auto select_status = select_udp(recv_socket, 30000);
             if (select_status <= 0)
                 return -2;
         }
-        int bytes;
-        if(!udp_client_specific) {
-            bytes = receive_udp(socket, buffer, &client_info);
-        } else{
-#ifndef WIN32
-            bytes = read(socket, buffer, MESSAGE_SIZE + 1);
-#endif
-        }
+        auto bytes = receive_udp(recv_socket, buffer, &client_info, receive_from_pipe);
         first_packet = false;
         auto address = reinterpret_cast<sockaddr_in *>(&client_info);
 //        if (address->sin_addr.s_addr != server_addr.sin_addr.s_addr) continue;
@@ -285,14 +289,12 @@ static int receive_message_udp(sockaddr_in &server_addr, SOCKET socket, std::vec
             std::tie(message_number, message_total, message) = parse_content_message(buffer, bytes);
             if (message_number <= expected_chunk) {
                 auto packet = make_chunk_success_packet(message_number);
-                auto &&send_stat = send_udp(socket, packet, _server_addr);
+                auto &&send_stat = send_udp(send_socket, packet, _send_addr);
             }
             if (message_number == expected_chunk) {
                 receive_buffer.emplace_back(message);
             }
             if (receive_buffer.size() == message_total) {
-                auto packet = make_chunk_success_packet(message_total);
-                auto &&send_stat = send_udp(socket, packet, _server_addr);
                 break;
             }
         }

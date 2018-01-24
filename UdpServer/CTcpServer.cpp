@@ -57,7 +57,7 @@ void AcceptThread(AcceptThInput pData) {
         }
         auto &&client_id = pData.pParent->get_client_id(&client_addr);
         auto&& pipe_id = pData.pParent->pipes[client_id];
-        write(pipe_id, buffer, MESSAGE_SIZE + 1);
+        write(pipe_id, buffer, receive_status);
         pData.pParent->RemoveDisconnected();
     }
 };

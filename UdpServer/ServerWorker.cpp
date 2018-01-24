@@ -782,12 +782,11 @@ bool ServerWorker::DeleteOneMes(const string &username, const unsigned long &id)
 }
 
 int ServerWorker::ListenRecv(vector<char> &MsgStr) {
-    sockaddr_in stub{};
-    return receive_message_udp(stub, client_socket, MsgStr, true);
+    return receive_message_udp(client_addr, pParent->server_socket, client_socket, MsgStr, true);
 }
 
 int ServerWorker::SendTo(string &message) {
-    return send_message_udp(client_addr, pParent->server_socket, message);
+    return send_message_udp(client_addr, pParent->server_socket, client_socket, message, true);
 }
 
 
